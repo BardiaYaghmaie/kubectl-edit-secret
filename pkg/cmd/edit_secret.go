@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/client-go/kubernetes"
@@ -86,14 +87,12 @@ func (o *EditSecretOptions) Complete(cmd *cobra.Command, args []string) error {
 		o.key = args[1]
 	}
 
-	// Get namespace
 	var err error
 	o.namespace, _, err = o.configFlags.ToRawKubeConfigLoader().Namespace()
 	if err != nil {
 		return fmt.Errorf("failed to get namespace: %w", err)
 	}
 
-	// Create Kubernetes client
 	restConfig, err := o.configFlags.ToRESTConfig()
 	if err != nil {
 		return fmt.Errorf("failed to create REST config: %w", err)
@@ -104,28 +103,33 @@ func (o *EditSecretOptions) Complete(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create Kubernetes client: %w", err)
 	}
 
-	// Determine editor
-	if o.editor == "" {
-		o.editor = os.Getenv("KUBE_EDITOR")
-	}
-	if o.editor == "" {
-		o.editor = os.Getenv("EDITOR")
-	}
-	if o.editor == "" {
-		// Try to find an available editor
-		editors := []string{"vim", "vi", "nano", "notepad"}
-		for _, e := range editors {
-			if _, err := exec.LookPath(e); err == nil {
-				o.editor = e
-				break
-			}
-		}
-	}
-	if o.editor == "" {
-		return fmt.Errorf("no editor found. Set $EDITOR or $KUBE_EDITOR environment variable, or use --editor flag")
+	return o.resolveEditor()
+}
+
+// resolveEditor determines which editor to use
+func (o *EditSecretOptions) resolveEditor() error {
+	if o.editor != "" {
+		return nil
 	}
 
-	return nil
+	if editor := os.Getenv("KUBE_EDITOR"); editor != "" {
+		o.editor = editor
+		return nil
+	}
+
+	if editor := os.Getenv("EDITOR"); editor != "" {
+		o.editor = editor
+		return nil
+	}
+
+	for _, e := range []string{"vim", "vi", "nano", "notepad"} {
+		if _, err := exec.LookPath(e); err == nil {
+			o.editor = e
+			return nil
+		}
+	}
+
+	return fmt.Errorf("no editor found. Set $EDITOR or $KUBE_EDITOR environment variable, or use --editor flag")
 }
 
 // Validate ensures options are valid
@@ -140,48 +144,113 @@ func (o *EditSecretOptions) Validate() error {
 func (o *EditSecretOptions) Run() error {
 	ctx := context.Background()
 
-	// Fetch the secret
 	secret, err := o.clientset.CoreV1().Secrets(o.namespace).Get(ctx, o.secretName, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to get secret %s: %w", o.secretName, err)
 	}
 
-	// Prepare decoded data for editing
+	decodedData, err := o.extractDecodedData(secret)
+	if err != nil {
+		return err
+	}
+
+	editedData, err := o.editInEditor(decodedData)
+	if err != nil {
+		return err
+	}
+
+	if editedData == nil {
+		fmt.Fprintln(o.streams.Out, "Edit cancelled, no changes made.")
+		return nil
+	}
+
+	if !o.hasChanges(decodedData, editedData) {
+		fmt.Fprintln(o.streams.Out, "No changes detected.")
+		return nil
+	}
+
+	if err := o.applyChanges(ctx, secret, decodedData, editedData); err != nil {
+		return err
+	}
+
+	fmt.Fprintf(o.streams.Out, "secret/%s edited\n", o.secretName)
+	return nil
+}
+
+// extractDecodedData extracts and decodes data from the secret
+func (o *EditSecretOptions) extractDecodedData(secret *corev1.Secret) (map[string]string, error) {
 	decodedData := make(map[string]string)
-	
+
 	if o.key != "" {
-		// Edit only the specified key
-		if data, ok := secret.Data[o.key]; ok {
-			decodedData[o.key] = string(data)
-		} else if strData, ok := secret.StringData[o.key]; ok {
-			decodedData[o.key] = strData
-		} else {
-			// List available keys
-			keys := make([]string, 0, len(secret.Data))
-			for k := range secret.Data {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			return fmt.Errorf("key %q not found in secret. Available keys: %s", o.key, strings.Join(keys, ", "))
-		}
-	} else {
-		// Edit all keys
-		for k, v := range secret.Data {
-			decodedData[k] = string(v)
-		}
+		return o.extractSingleKey(secret, decodedData)
+	}
+
+	for k, v := range secret.Data {
+		decodedData[k] = string(v)
 	}
 
 	if len(decodedData) == 0 {
-		return fmt.Errorf("secret %s has no data", o.secretName)
+		return nil, fmt.Errorf("secret %s has no data", o.secretName)
 	}
 
-	// Create YAML content for editing
-	yamlContent, err := yaml.Marshal(decodedData)
+	return decodedData, nil
+}
+
+// extractSingleKey extracts a single key from the secret
+func (o *EditSecretOptions) extractSingleKey(secret *corev1.Secret, decodedData map[string]string) (map[string]string, error) {
+	if data, ok := secret.Data[o.key]; ok {
+		decodedData[o.key] = string(data)
+		return decodedData, nil
+	}
+
+	if strData, ok := secret.StringData[o.key]; ok {
+		decodedData[o.key] = strData
+		return decodedData, nil
+	}
+
+	keys := make([]string, 0, len(secret.Data))
+	for k := range secret.Data {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return nil, fmt.Errorf("key %q not found in secret. Available keys: %s", o.key, strings.Join(keys, ", "))
+}
+
+// editInEditor opens the editor and returns edited data, or nil if cancelled
+func (o *EditSecretOptions) editInEditor(decodedData map[string]string) (map[string]string, error) {
+	editContent := o.createEditContent(decodedData)
+
+	tmpPath, err := o.writeTempFile(editContent)
 	if err != nil {
-		return fmt.Errorf("failed to marshal data: %w", err)
+		return nil, err
+	}
+	defer os.Remove(tmpPath)
+
+	beforeContent, err := os.ReadFile(tmpPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read temp file: %w", err)
 	}
 
-	// Add helpful comment header
+	if err := o.runEditor(tmpPath); err != nil {
+		return nil, err
+	}
+
+	afterContent, err := os.ReadFile(tmpPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read temp file after edit: %w", err)
+	}
+
+	if bytes.Equal(beforeContent, afterContent) {
+		return nil, nil
+	}
+
+	return parseEditedContent(afterContent)
+}
+
+// createEditContent creates the YAML content with header comments
+func (o *EditSecretOptions) createEditContent(decodedData map[string]string) string {
+	yamlContent, _ := yaml.Marshal(decodedData)
+
 	header := fmt.Sprintf(`# Editing secret: %s
 # Namespace: %s
 # 
@@ -193,119 +262,86 @@ func (o *EditSecretOptions) Run() error {
 #
 `, o.secretName, o.namespace)
 
-	editContent := header + string(yamlContent)
+	return header + string(yamlContent)
+}
 
-	// Create temp file for editing
+// writeTempFile creates a temporary file with the given content
+func (o *EditSecretOptions) writeTempFile(content string) (string, error) {
 	tmpFile, err := os.CreateTemp("", fmt.Sprintf("kubectl-edit-secret-%s-*.yaml", o.secretName))
 	if err != nil {
-		return fmt.Errorf("failed to create temp file: %w", err)
+		return "", fmt.Errorf("failed to create temp file: %w", err)
 	}
-	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
 
-	if _, err := tmpFile.WriteString(editContent); err != nil {
+	tmpPath := tmpFile.Name()
+	if _, err := tmpFile.WriteString(content); err != nil {
 		tmpFile.Close()
-		return fmt.Errorf("failed to write temp file: %w", err)
+		os.Remove(tmpPath)
+		return "", fmt.Errorf("failed to write temp file: %w", err)
 	}
 	tmpFile.Close()
 
-	// Get file info before editing
-	beforeInfo, err := os.Stat(tmpPath)
-	if err != nil {
-		return fmt.Errorf("failed to stat temp file: %w", err)
-	}
-	beforeContent, err := os.ReadFile(tmpPath)
-	if err != nil {
-		return fmt.Errorf("failed to read temp file: %w", err)
-	}
+	return tmpPath, nil
+}
 
-	// Open editor
+// runEditor opens the editor with the given file
+func (o *EditSecretOptions) runEditor(filePath string) error {
 	editorPath, editorArgs := parseEditor(o.editor)
-	editorArgs = append(editorArgs, tmpPath)
-	
-	editorCmd := exec.Command(editorPath, editorArgs...)
-	editorCmd.Stdin = os.Stdin
-	editorCmd.Stdout = os.Stdout
-	editorCmd.Stderr = os.Stderr
+	editorArgs = append(editorArgs, filePath)
 
-	if err := editorCmd.Run(); err != nil {
+	cmd := exec.Command(editorPath, editorArgs...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("editor failed: %w", err)
 	}
+	return nil
+}
 
-	// Check if file was modified
-	afterInfo, err := os.Stat(tmpPath)
-	if err != nil {
-		return fmt.Errorf("failed to stat temp file after edit: %w", err)
+// hasChanges checks if the edited data differs from the original
+func (o *EditSecretOptions) hasChanges(original, edited map[string]string) bool {
+	if len(original) != len(edited) {
+		return true
 	}
 
-	afterContent, err := os.ReadFile(tmpPath)
-	if err != nil {
-		return fmt.Errorf("failed to read temp file after edit: %w", err)
-	}
-
-	// Check if anything changed
-	if beforeInfo.ModTime().Equal(afterInfo.ModTime()) && bytes.Equal(beforeContent, afterContent) {
-		fmt.Fprintln(o.streams.Out, "Edit cancelled, no changes made.")
-		return nil
-	}
-
-	// Parse edited content
-	editedData, err := parseEditedContent(afterContent)
-	if err != nil {
-		return fmt.Errorf("failed to parse edited content: %w", err)
-	}
-
-	// Check if data actually changed
-	changed := false
-	for k, newVal := range editedData {
-		if oldVal, ok := decodedData[k]; !ok || oldVal != newVal {
-			changed = true
-			break
+	for k, newVal := range edited {
+		if oldVal, ok := original[k]; !ok || oldVal != newVal {
+			return true
 		}
 	}
-	if len(editedData) != len(decodedData) {
-		changed = true
-	}
 
-	if !changed {
-		fmt.Fprintln(o.streams.Out, "No changes detected.")
-		return nil
-	}
+	return false
+}
 
-	// Update secret with new values
+// applyChanges updates the secret with the edited data
+func (o *EditSecretOptions) applyChanges(ctx context.Context, secret *corev1.Secret, original, edited map[string]string) error {
 	if secret.Data == nil {
 		secret.Data = make(map[string][]byte)
 	}
 
 	if o.key != "" {
-		// Only update the specific key
-		if newVal, ok := editedData[o.key]; ok {
+		if newVal, ok := edited[o.key]; ok {
 			secret.Data[o.key] = []byte(newVal)
 		}
 	} else {
-		// Update all keys from edited data
-		// First, remove keys that were deleted
-		for k := range decodedData {
-			if _, exists := editedData[k]; !exists {
+		for k := range original {
+			if _, exists := edited[k]; !exists {
 				delete(secret.Data, k)
 			}
 		}
-		// Then update/add keys
-		for k, v := range editedData {
+		for k, v := range edited {
 			secret.Data[k] = []byte(v)
 		}
 	}
 
-	// Clear StringData as we're using Data
 	secret.StringData = nil
 
-	// Apply the updated secret
-	_, err = o.clientset.CoreV1().Secrets(o.namespace).Update(ctx, secret, metav1.UpdateOptions{})
+	_, err := o.clientset.CoreV1().Secrets(o.namespace).Update(ctx, secret, metav1.UpdateOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to update secret: %w", err)
 	}
 
-	fmt.Fprintf(o.streams.Out, "secret/%s edited\n", o.secretName)
 	return nil
 }
 
@@ -320,24 +356,20 @@ func parseEditor(editor string) (string, []string) {
 
 // parseEditedContent parses the YAML content, ignoring comments
 func parseEditedContent(content []byte) (map[string]string, error) {
-	// Remove comment lines
 	lines := strings.Split(string(content), "\n")
-	var cleanLines []string
+	cleanLines := make([]string, 0, len(lines))
+
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if !strings.HasPrefix(trimmed, "#") {
 			cleanLines = append(cleanLines, line)
 		}
 	}
-	cleanContent := strings.Join(cleanLines, "\n")
 
-	// Parse YAML
 	result := make(map[string]string)
-	if err := yaml.Unmarshal([]byte(cleanContent), &result); err != nil {
+	if err := yaml.Unmarshal([]byte(strings.Join(cleanLines, "\n")), &result); err != nil {
 		return nil, fmt.Errorf("invalid YAML: %w", err)
 	}
 
 	return result, nil
 }
-
-
