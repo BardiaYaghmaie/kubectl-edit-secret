@@ -6,7 +6,7 @@ dist/
 *.dll
 *.so
 *.dylib
-kubectl-edit_secret
+/kubectl-edit_secret
 
 # Test binary
 *.test
