@@ -2,6 +2,7 @@
 
 A kubectl plugin to edit Kubernetes secrets with **decoded values**. No more manual base64 encoding/decoding!
 
+[![Krew](https://img.shields.io/badge/kubectl-krew-blue.svg)](https://krew.sigs.k8s.io/plugins/)
 [![Go Report Card](https://goreportcard.com/badge/github.com/BardiaYaghmaie/kubectl-edit-secret)](https://goreportcard.com/report/github.com/BardiaYaghmaie/kubectl-edit-secret)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -15,14 +16,15 @@ A kubectl plugin to edit Kubernetes secrets with **decoded values**. No more man
 
 ## Installation
 
-### Via Krew (Coming Soon)
+### Via Krew (Recommended)
 
-> ⏳ **Note**: This plugin is currently pending approval in the [krew-index](https://github.com/kubernetes-sigs/krew-index/pull/5095). Once approved, you'll be able to install it with:
-> ```bash
-> kubectl krew install edit-secret
-> ```
+Install using [Krew](https://krew.sigs.k8s.io/), the kubectl plugin manager:
 
-### From Source (Recommended for now)
+```bash
+kubectl krew install edit-secret
+```
+
+### Via Go Install
 
 ```bash
 go install github.com/BardiaYaghmaie/kubectl-edit-secret/cmd/kubectl-edit_secret@latest
