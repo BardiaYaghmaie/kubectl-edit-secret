@@ -5,7 +5,7 @@ All notable changes to this project are documented here. Format follows
 
 ## [0.2.0] - 2026-11-18
 
-The "safe at 3am" release. Battle-tested by two SREs before shipping.
+The "safe at 3am" release.
 
 ### Added
 - **Tab completion** for secret names, keys, namespaces, contexts, `--unset` and `--type`, with
