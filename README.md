@@ -7,6 +7,10 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/BardiaYaghmaie/kubectl-edit-secret)](https://goreportcard.com/report/github.com/BardiaYaghmaie/kubectl-edit-secret)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+<p align="center">
+  <img src="docs/demo.gif" alt="Rotating a database password with kubectl edit-secret: tab completion, editing in vim, a change summary, and restarting the workloads that use it" width="860">
+</p>
+
 ```bash
 kubectl krew install edit-secret
 kubectl edit-secret completion install   # optional: tab completion
@@ -47,54 +51,11 @@ No more `echo ... | base64 -d`, copy, paste, `base64 -w0`, paste back, and hopin
 
 ## Why you'll like it
 
-**It's an editor, done right**
-- Values in plain text. Certificates and config files as readable multi-line blocks. JSON (hello, `.dockerconfigjson`) pretty-printed for editing and compacted back on save.
-- Binary values (keystores, `.p12`) are shown as `!!binary` and preserved byte-for-byte. Edit the rest around them safely.
-- Made a typo? Invalid YAML or a rejected key reopens the editor with the error at the top. Your work is still there.
-- Uses `$KUBE_EDITOR` / `$EDITOR` exactly like `kubectl edit`, including `code --wait`.
-
-**It's safe in production**
-- Every change shows a summary and asks for confirmation, with the **context name in the prompt** so you know which cluster you are about to change.
-- Validates TLS secrets before applying: a key that doesn't match the certificate, or an expired certificate, is caught **before** your pods restart with it.
-- Warns when a secret is managed by **Helm, Argo CD, Flux or an operator**, because your change will probably be reverted on the next sync.
-- Checks your permissions **before** opening the editor. If something still goes wrong (a conflict, a webhook, a network blip) your edits are saved to a file, never lost.
-- If someone else changes the secret while you are editing, nothing is overwritten. If they only touched labels, your edit is retried automatically.
-- Decoded values live in a private directory in **`/dev/shm`** on Linux (RAM, never disk) and are wiped on exit, Ctrl-C, `kill` or a dropped SSH session.
-- Removes the stale `last-applied-configuration` annotation, which can hold your old values in plain text.
-
-**It finishes the job**
-- Shows which Deployments, StatefulSets and DaemonSets use the secret. `--restart` rolls them for you, because a rotation isn't done until the pods have the new value.
-- Tab completion for secrets, keys, namespaces and contexts, with descriptions.
-- No name? Pick one with **fzf**.
-- Scriptable: `--set`, `--from-file`, `--unset`, `--dry-run`, `--yes`.
-
-## Tour
-
-```bash
-# Edit a whole secret, or one key
-kubectl edit-secret db-credentials
-kubectl edit-secret db-credentials password
-
-# Don't remember the name? Pick it (needs fzf)
-kubectl edit-secret -n production
-
-# Rotate a certificate and restart everything that uses it
-kubectl edit-secret web-tls \
-  --from-file tls.crt=./cert.pem --from-file tls.key=./key.pem --restart
-
-# Rotate a password without it landing in your shell history
-pwgen -s 32 1 | tr -d '\n' | kubectl edit-secret db-credentials --from-file password=- --yes
-
-# Create secrets; the editor opens with the fields the type needs
-kubectl edit-secret web-tls --create --type kubernetes.io/tls
-kubectl edit-secret api --create --set token=abc123 --yes
-
-# See exactly what would change, validated by the API server, without applying
-kubectl edit-secret db-credentials --set password=x --dry-run --show-values
-
-# In CI: no prompts, fail loudly on anything suspicious
-kubectl edit-secret app-config --set FEATURE_X=true --yes
-```
+- **It reads like a text file.** Certificates and configs as real multi-line blocks, JSON pretty-printed, binary values preserved byte-for-byte.
+- **It's careful with production.** A change summary and a confirmation that names the cluster, TLS key/cert checks, and a warning when Helm, Argo CD or Flux manages the secret.
+- **It doesn't lose your work.** Typos reopen the editor with the error on top; conflicts and permission errors save your edits to a file.
+- **It finishes the rotation.** Shows which workloads use the secret, and `--restart` rolls them.
+- **It doesn't leak.** Decoded values stay in RAM (`/dev/shm` on Linux) and are wiped on exit, Ctrl-C, `kill` or a dropped SSH session.
 
 ## Tab completion
 
@@ -136,6 +97,34 @@ Using the binary directly? `source <(kubectl-edit_secret completion zsh)` (also 
 
 Plus every standard kubectl flag: `-n`, `--context`, `--kubeconfig`, `--as`, ...
 
+## Examples
+
+```bash
+# Edit a whole secret, or one key
+kubectl edit-secret db-credentials
+kubectl edit-secret db-credentials password
+
+# Don't remember the name? Pick it (needs fzf)
+kubectl edit-secret -n production
+
+# Rotate a certificate and restart everything that uses it
+kubectl edit-secret web-tls \
+  --from-file tls.crt=./cert.pem --from-file tls.key=./key.pem --restart
+
+# Rotate a password without it landing in your shell history
+pwgen -s 32 1 | tr -d '\n' | kubectl edit-secret db-credentials --from-file password=- --yes
+
+# Create secrets; the editor opens with the fields the type needs
+kubectl edit-secret web-tls --create --type kubernetes.io/tls
+kubectl edit-secret api --create --set token=abc123 --yes
+
+# See exactly what would change, validated by the API server, without applying
+kubectl edit-secret db-credentials --set password=x --dry-run --show-values
+
+# In CI: no prompts, fail loudly on anything suspicious
+kubectl edit-secret app-config --set FEATURE_X=true --yes
+```
+
 ## How it behaves
 
 | Situation | What happens |
@@ -173,10 +162,16 @@ make test   # unit tests
 make e2e    # 29 end-to-end checks against a kind cluster (refuses to run on non-kind contexts)
 ```
 
+The demo GIF is recorded with [vhs](https://github.com/charmbracelet/vhs) from `docs/demo/demo.tape` against a kind cluster (`docs/demo/setup.sh` creates the fixtures).
+
 The end-to-end suite drives real editors (including `vi`), a pseudo-terminal for prompts, signals,
 RBAC, TLS rotation, GitOps-managed secrets and shell completion.
 
 Contributions welcome: open an issue or a pull request. See [CHANGELOG.md](CHANGELOG.md) for what's new.
+
+## Like it?
+
+If it saved you some base64 pain, a star on the repo helps other people find it. Feedback, bugs and ideas are just as welcome: open an [issue](https://github.com/BardiaYaghmaie/kubectl-edit-secret/issues) or join the [discussions](https://github.com/BardiaYaghmaie/kubectl-edit-secret/discussions).
 
 ## Related
 
