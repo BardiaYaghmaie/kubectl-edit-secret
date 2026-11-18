@@ -2,11 +2,17 @@ package cmd
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
 )
 
 func (o *EditSecretOptions) completeArgs(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
@@ -81,7 +87,7 @@ func (o *EditSecretOptions) secretNames(prefix string) []string {
 	var names []string
 	for _, s := range list.Items {
 		if strings.HasPrefix(s.Name, prefix) {
-			names = append(names, s.Name)
+			names = append(names, fmt.Sprintf("%s\t%s · %s", s.Name, s.Type, plural(len(s.Data), "key")))
 		}
 	}
 	return names
@@ -98,9 +104,84 @@ func (o *EditSecretOptions) secretKeys(secretName, prefix string) []string {
 	}
 	var keys []string
 	for _, k := range sortedKeys(s.Data) {
-		if strings.HasPrefix(k, prefix) {
-			keys = append(keys, k)
+		if !strings.HasPrefix(k, prefix) {
+			continue
 		}
+		v := s.Data[k]
+		desc := plural(len(v), "byte")
+		switch {
+		case !isText(v):
+			desc = "binary · " + desc
+		case strings.Contains(string(v), "\n"):
+			desc = "multi-line · " + desc
+		}
+		keys = append(keys, k+"\t"+desc)
 	}
 	return keys
+}
+
+func plural(n int, word string) string {
+	if n == 1 {
+		return fmt.Sprintf("1 %s", word)
+	}
+	return fmt.Sprintf("%d %ss", n, word)
+}
+
+func newCompletionCmd(streams genericclioptions.IOStreams) *cobra.Command {
+	c := &cobra.Command{
+		Use:    "completion [bash|zsh|fish|powershell|install]",
+		Short:  "Set up shell completion",
+		Hidden: true,
+		Long: `Set up shell completion.
+
+  install     Enable completion for "kubectl edit-secret <TAB>" (kubectl >= 1.26).
+              Writes a kubectl_complete-edit_secret helper next to the plugin.
+  bash|zsh|fish|powershell
+              Print a completion script for the standalone kubectl-edit_secret binary.`,
+		Example: `  kubectl edit-secret completion install
+  source <(kubectl-edit_secret completion zsh)`,
+		ValidArgs: []string{"install", "bash", "zsh", "fish", "powershell"},
+		Args:      cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if args[0] == "install" {
+				return installKubectlCompletion(streams)
+			}
+			root := cmd.Root()
+			root.Use = pluginBinary
+			out := streams.Out
+			switch args[0] {
+			case "bash":
+				return root.GenBashCompletionV2(out, true)
+			case "zsh":
+				return root.GenZshCompletion(out)
+			case "fish":
+				return root.GenFishCompletion(out, true)
+			default:
+				return root.GenPowerShellCompletionWithDesc(out)
+			}
+		},
+	}
+	return c
+}
+
+const pluginBinary = "kubectl-edit_secret"
+
+func installKubectlCompletion(streams genericclioptions.IOStreams) error {
+	plugin, err := exec.LookPath(pluginBinary)
+	if err != nil {
+		if plugin, err = os.Executable(); err != nil {
+			return fmt.Errorf("cannot locate %s: %w", pluginBinary, err)
+		}
+	}
+	dir := filepath.Dir(plugin)
+	name, script := "kubectl_complete-edit_secret", "#!/bin/sh\nexec kubectl edit-secret __complete \"$@\"\n"
+	if runtime.GOOS == "windows" {
+		name, script = name+".bat", "@echo off\r\nkubectl edit-secret __complete %*\r\n"
+	}
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		return fmt.Errorf("failed to write %s: %w", path, err)
+	}
+	fmt.Fprintf(streams.Out, "Installed %s\nTry: kubectl edit-secret <TAB>  (needs kubectl >= 1.26 and kubectl completion enabled in your shell)\n", path)
+	return nil
 }

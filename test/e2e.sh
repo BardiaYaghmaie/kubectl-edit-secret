@@ -11,8 +11,6 @@ ns=e2e-edit-secret-$$
 trap 'kubectl delete ns "$ns" --wait=false >/dev/null 2>&1 || true; rm -rf "$work"' EXIT
 
 go build -o "$work/bin/kubectl-edit_secret" "$root/cmd/kubectl-edit_secret"
-printf '#!/bin/sh\nexec kubectl edit-secret __complete "$@"\n' > "$work/bin/kubectl_complete-edit_secret"
-chmod +x "$work/bin/kubectl_complete-edit_secret"
 export PATH="$work/bin:$PATH"
 unset KUBE_EDITOR EDITOR
 
@@ -127,14 +125,22 @@ es viaeditor --create -y -e "$ed" >/dev/null
 [[ $(get viaeditor token) == abc ]] || fail "create via editor"
 ok "--create (flags and editor)"
 
-# Completion: standalone and via kubectl plugin completion
-kubectl-edit_secret __complete -n "$ns" "" 2>/dev/null | grep -x >/dev/null basic || fail "complete secret names"
-kubectl-edit_secret __complete -n "$ns" basic "" 2>/dev/null | grep -x >/dev/null user || fail "complete keys"
-kubectl-edit_secret __complete -n "$ns" basic --unset "" 2>/dev/null | grep -x >/dev/null pw || fail "complete --unset keys"
-kubectl-edit_secret __complete -n "" 2>/dev/null | grep -x >/dev/null "$ns" || fail "complete namespaces"
-kubectl-edit_secret __complete --context "" 2>/dev/null | grep -x >/dev/null "$ctx" || fail "complete contexts"
-kubectl __complete edit-secret -n "$ns" "" 2>/dev/null | grep -x >/dev/null basic || fail "kubectl plugin completion"
-ok "shell completion (names, keys, namespaces, contexts, kubectl plugin)"
+# Completion: standalone, with descriptions, and via kubectl plugin completion
+c() { kubectl-edit_secret __complete "$@" 2>/dev/null; }
+c -n "$ns" "" | grep -x "basic	Opaque · [0-9]* keys" >/dev/null || fail "complete secret names with description"
+! c -n "$ns" "" | grep -E "^(completion|help)" >/dev/null || fail "subcommands leak into completion"
+c -n "$ns" basic "" | grep -x "user	5 bytes\|user	4 bytes" >/dev/null || fail "complete keys"
+c -n "$ns" basic "" | grep "^blob	binary" >/dev/null || fail "binary key description"
+c -n "$ns" basic "" | grep "^tls.crt	multi-line" >/dev/null || fail "multi-line key description"
+c -n "$ns" basic --unset "" | grep "^pw	" >/dev/null || fail "complete --unset keys"
+c -n "" | grep -x "$ns" >/dev/null || fail "complete namespaces"
+c --context "" | grep -x "$ctx" >/dev/null || fail "complete contexts"
+rm -f "$work/bin/kubectl_complete-edit_secret"
+kubectl edit-secret completion install | grep "$work/bin/kubectl_complete-edit_secret" >/dev/null || fail "completion install"
+kubectl __complete edit-secret -n "$ns" "" 2>/dev/null | grep "^basic	" >/dev/null || fail "kubectl plugin completion"
+kubectl-edit_secret completion zsh | grep "#compdef kubectl-edit_secret" >/dev/null || fail "zsh script"
+kubectl-edit_secret completion bash | grep "kubectl-edit_secret" >/dev/null || fail "bash script"
+ok "shell completion (descriptions, keys, namespaces, contexts, install, kubectl plugin, scripts)"
 
 # fzf picker when no name is given
 if command -v fzf >/dev/null; then

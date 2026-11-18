@@ -6,8 +6,9 @@ All notable changes to this project are documented here. Format follows
 ## [0.2.0] - 2026-11-18
 
 ### Added
-- **Shell completion** for secret names, keys, `--namespace`, `--context`, `--unset` and `--type`,
-  including kubectl plugin completion via a `kubectl_complete-edit_secret` shim.
+- **Tab completion** for secret names, keys, `--namespace`, `--context`, `--unset` and `--type`, with
+  descriptions (secret type and key count, key size, binary/multi-line). Set up with
+  `kubectl edit-secret completion install`; standalone scripts via `completion bash|zsh|fish|powershell`.
 - **Diff and confirmation**: a summary of added/changed/removed keys and a `[y/N]` prompt before applying. `--yes` / `-y` skips it.
 - **Reopen on error**: invalid YAML or an API validation error reopens the editor with the error at the top, keeping your edits.
 - **Conflict detection**: if the secret changes while you edit, nothing is overwritten and your edits are saved to a file.

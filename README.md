@@ -18,7 +18,7 @@ A kubectl plugin to edit Kubernetes secrets with **decoded values**. No more man
 - **`--create`**: create a secret if it doesn't exist (`--type` for TLS, basic-auth, ...)
 - **`--dry-run`**: server-side validation without applying
 - **Fuzzy picker**: omit the secret name to pick one with `fzf`
-- **Shell completion**: secret names, keys, namespaces, contexts
+- **Tab completion**: secret names, keys, namespaces and contexts with rich descriptions; one-command setup
 - **Secure temp files**: plaintext lives in a private `0700` dir (in `/dev/shm` on Linux, so never on disk) and is zeroed and removed afterwards
 - **Full kubectl flag compatibility**: namespace, context, kubeconfig, ...
 
@@ -104,19 +104,26 @@ kubectl edit-secret -n production                         # pick a secret with f
 
 ### Shell completion
 
-The plugin supports completion of secret names, keys (`KEY` arg and `--unset`), `--namespace` and `--context`.
-
-Through kubectl (kubectl >= 1.26), create this executable somewhere on your `PATH`:
+One command:
 
 ```bash
-cat > ~/.krew/bin/kubectl_complete-edit_secret <<'SH'
-#!/bin/sh
-exec kubectl edit-secret __complete "$@"
-SH
-chmod +x ~/.krew/bin/kubectl_complete-edit_secret
+kubectl edit-secret completion install
 ```
 
-Then `kubectl edit-secret <TAB>` works in bash/zsh/fish with kubectl completion enabled.
+Then `kubectl edit-secret <TAB>` completes secret names, keys, namespaces and contexts, with descriptions in zsh and fish:
+
+```
+$ kubectl edit-secret -n prod <TAB>
+db-creds  -- Opaque · 2 keys
+web-tls   -- kubernetes.io/tls · 2 keys
+
+$ kubectl edit-secret -n prod web-tls <TAB>
+tls.crt  -- multi-line · 1164 bytes
+tls.key  -- multi-line · 1704 bytes
+```
+
+Requires kubectl >= 1.26 with kubectl completion enabled in your shell. For the standalone binary:
+`source <(kubectl-edit_secret completion zsh)` (also `bash`, `fish`, `powershell`).
 
 ### Example Workflow
 

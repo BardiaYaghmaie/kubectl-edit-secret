@@ -17,16 +17,14 @@ spec:
     - Reopens the editor on invalid YAML or API validation errors
     - Conflict detection when the secret changes while you edit
     - Non-interactive edits: --set, --from-file, --unset
-    - --create, --dry-run (server-side), fzf picker, shell completion
+    - --create, --dry-run (server-side), fzf picker, rich tab completion
     - Plaintext temp files kept in a private dir (/dev/shm on Linux) and wiped
   caveats: |
     Requires an editor: set $KUBE_EDITOR or $EDITOR, or pass --editor.
 
-    For shell completion through kubectl (kubectl >= 1.26), create an
-    executable named kubectl_complete-edit_secret on your PATH:
+    Enable tab completion (kubectl >= 1.26):
 
-      #!/bin/sh
-      exec kubectl edit-secret __complete "$@"
+      kubectl edit-secret completion install
   platforms:
   - selector:
       matchLabels:

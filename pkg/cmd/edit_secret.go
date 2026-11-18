@@ -71,6 +71,8 @@ and automatically re-encoding and applying changes.
 If KEY is specified, only that key is edited. If SECRET_NAME is omitted and fzf
 is installed, an interactive picker is shown.
 
+Run "kubectl edit-secret completion install" to enable tab completion.
+
 Multi-line values are shown as YAML block scalars. Binary values are shown as
 !!binary (base64) and round-trip unchanged unless edited.`,
 		Example: `  # Edit all keys in a secret
@@ -115,6 +117,9 @@ Multi-line values are shown as YAML block scalars. Binary values are shown as
 	f.StringArrayVar(&o.fromFiles, "from-file", nil, "Set [KEY=]PATH from a file without opening an editor (repeatable)")
 	f.StringArrayVar(&o.unsets, "unset", nil, "Remove KEY without opening an editor (repeatable)")
 	o.registerFlagCompletions(cmd)
+	cmd.AddCommand(newCompletionCmd(streams))
+	cmd.CompletionOptions.DisableDefaultCmd = true
+	cmd.SetHelpCommand(&cobra.Command{Hidden: true})
 
 	return cmd
 }
