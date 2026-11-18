@@ -8,11 +8,19 @@ A kubectl plugin to edit Kubernetes secrets with **decoded values**. No more man
 
 ## Features
 
-- 🔓 **Automatic Decoding**: View and edit secret values in plain text
-- 🔐 **Automatic Encoding**: Changes are base64-encoded before applying
-- ✏️ **Editor Support**: Uses your preferred editor (`$KUBE_EDITOR`, `$EDITOR`, or `--editor`)
-- 🎯 **Selective Editing**: Edit all keys or just a specific key
-- 🔧 **Full kubectl Compatibility**: Supports namespace, context, kubeconfig flags
+- **Decoded editing**: values shown in plain text, re-encoded on save
+- **Multi-line friendly**: certs, PEM keys and config files shown as YAML block scalars (`|`)
+- **Binary-safe**: non-text values shown as `!!binary` (base64) and preserved byte-for-byte
+- **Diff + confirm**: see which keys are added/changed/removed before applying (`--yes` to skip)
+- **Reopen on error**: invalid YAML or API validation errors reopen the editor with the error on top
+- **Conflict detection**: if the secret changes while you edit, nothing is overwritten and your edits are saved to a file
+- **Non-interactive**: `--set`, `--from-file`, `--unset` for scripts
+- **`--create`**: create a secret if it doesn't exist (`--type` for TLS, basic-auth, ...)
+- **`--dry-run`**: server-side validation without applying
+- **Fuzzy picker**: omit the secret name to pick one with `fzf`
+- **Shell completion**: secret names, keys, namespaces, contexts
+- **Secure temp files**: plaintext lives in a private `0700` dir (in `/dev/shm` on Linux, so never on disk) and is zeroed and removed afterwards
+- **Full kubectl flag compatibility**: namespace, context, kubeconfig, ...
 
 ## Installation
 
@@ -78,6 +86,38 @@ kubectl edit-secret my-secret --editor=nano
 kubectl edit-secret my-secret --editor="code --wait"
 ```
 
+### Non-interactive
+
+```bash
+kubectl edit-secret my-secret --set password=hunter2 --unset old-key --yes
+kubectl edit-secret tls --from-file tls.crt=./cert.pem --from-file tls.key=./key.pem --yes
+```
+
+### Create, dry-run, picker
+
+```bash
+kubectl edit-secret new-secret --create
+kubectl edit-secret creds --create --type kubernetes.io/basic-auth --set username=u --set password=p -y
+kubectl edit-secret my-secret --set password=x --dry-run   # validated by the API server, not applied
+kubectl edit-secret -n production                         # pick a secret with fzf
+```
+
+### Shell completion
+
+The plugin supports completion of secret names, keys (`KEY` arg and `--unset`), `--namespace` and `--context`.
+
+Through kubectl (kubectl >= 1.26), create this executable somewhere on your `PATH`:
+
+```bash
+cat > ~/.krew/bin/kubectl_complete-edit_secret <<'SH'
+#!/bin/sh
+exec kubectl edit-secret __complete "$@"
+SH
+chmod +x ~/.krew/bin/kubectl_complete-edit_secret
+```
+
+Then `kubectl edit-secret <TAB>` works in bash/zsh/fish with kubectl completion enabled.
+
 ### Example Workflow
 
 1. Run the edit command:
@@ -90,18 +130,25 @@ kubectl edit-secret my-secret --editor="code --wait"
    # Editing secret: my-app-secret
    # Namespace: default
    #
-   # Modify the values below. Lines starting with '#' are ignored.
-   # The values shown are DECODED (plain text).
-   # They will be automatically base64-encoded when saved.
-   #
-   # Save and exit to apply changes. Exit without saving to cancel.
+   # Values are DECODED (plain text) and re-encoded on save.
+   # Multi-line values use YAML block scalars (|). Binary values are tagged !!binary (base64).
+   # Add, change or remove keys. Save and exit to apply; exit without saving to cancel.
    #
    api-key: my-super-secret-api-key
-   database-url: postgres://user:password@localhost:5432/mydb
-   jwt-secret: another-secret-value
+   ca.crt: |
+     -----BEGIN CERTIFICATE-----
+     MIIBszCCAVmgAwIBAgIU...
+     -----END CERTIFICATE-----
+   keystore.p12: !!binary MIIKXAIBAzCCChYGCSqGSIb3...
    ```
 
-3. Make your changes, save, and exit. The secret is automatically updated!
+3. Save and exit. You get a summary and a confirmation prompt:
+   ```
+   Changes to secret/my-app-secret (namespace default):
+     ~ api-key   (23 -> 31 bytes)
+     + new-key   (5 bytes)
+   Apply these changes? [y/N]:
+   ```
 
 ## Comparison with `kubectl edit secret`
 
@@ -120,7 +167,7 @@ The plugin looks for an editor in this order:
 1. `--editor` flag
 2. `$KUBE_EDITOR` environment variable
 3. `$EDITOR` environment variable
-4. System defaults: `vim`, `vi`, `nano`
+4. System defaults: `vim`, `vi`, `nano` (`notepad` on Windows)
 
 ### Setting Default Editor
 
@@ -135,7 +182,15 @@ export KUBE_EDITOR=nano
 
 | Flag | Short | Description |
 |------|-------|-------------|
-| `--editor` | `-e` | Editor to use for editing |
+| `--editor` | `-e` | Editor to use |
+| `--yes` | `-y` | Apply without confirmation |
+| `--dry-run` | | Show changes and validate server-side without applying |
+| `--create` | | Create the secret if it doesn't exist |
+| `--type` | | Secret type when creating (default `Opaque`) |
+| `--set KEY=VALUE` | | Set a key (repeatable, no editor) |
+| `--from-file [KEY=]PATH` | | Set a key from a file (repeatable, no editor) |
+| `--unset KEY` | | Remove a key (repeatable, no editor) |
+| `--version` | | Print version |
 | `--namespace` | `-n` | Kubernetes namespace |
 | `--context` | | Kubernetes context |
 | `--kubeconfig` | | Path to kubeconfig file |
@@ -158,8 +213,11 @@ make build
 # Build for all platforms
 make build-all
 
-# Run tests
+# Run unit tests
 make test
+
+# Run end-to-end tests against a kind cluster (refuses non-kind contexts)
+make e2e
 ```
 
 ## Contributing

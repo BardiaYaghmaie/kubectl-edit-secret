@@ -1,4 +1,4 @@
-.PHONY: build build-all clean install test lint fmt
+.PHONY: build build-all clean install test e2e lint fmt
 
 BINARY_NAME := kubectl-edit_secret
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "v0.1.0")
@@ -45,6 +45,10 @@ clean:
 test:
 	go test -v ./...
 
+# Run end-to-end tests (needs a kind cluster in the current KUBECONFIG)
+e2e:
+	hack/e2e.sh
+
 # Run linter
 lint:
 	golangci-lint run ./...
@@ -82,7 +86,8 @@ help:
 	@echo "  make install       Install to ~/.krew/bin"
 	@echo "  make install-global Install to /usr/local/bin (requires sudo)"
 	@echo "  make clean         Remove build artifacts"
-	@echo "  make test          Run tests"
+	@echo "  make test          Run unit tests"
+	@echo "  make e2e           Run e2e tests against a kind cluster"
 	@echo "  make deps          Download dependencies"
 	@echo "  make release       Create release archives"
 	@echo "  make help          Show this help"
