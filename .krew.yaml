@@ -16,16 +16,15 @@ spec:
     - Reopens the editor on invalid YAML or API validation errors; edits never lost
     - TLS cert/key validation and certificate summary before applying
     - Warns about Helm/Argo CD/Flux/operator-managed secrets
-    - Shows workloads using the secret; --restart rolls them
-    - --set, --from-file (incl. stdin), --unset, --create, --dry-run, fzf picker
-    - Rich tab completion with one-command setup
+    - Shows the workloads using a secret and can restart them
+    - Non-interactive edits, secret creation, server-side dry runs, fzf picker
+    - Rich tab completion with descriptions
     - Plaintext kept in RAM (/dev/shm on Linux) and wiped on exit or signals
   caveats: |
-    Requires an editor: set $KUBE_EDITOR or $EDITOR, or pass --editor.
+    Requires a text editor, taken from $KUBE_EDITOR or $EDITOR.
 
-    Enable tab completion (kubectl >= 1.26):
-
-      kubectl edit-secret completion install
+    Tab completion can be enabled with the plugin's completion subcommand;
+    see the homepage for details.
   platforms:
   - selector:
       matchLabels:
