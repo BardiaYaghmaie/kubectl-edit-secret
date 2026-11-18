@@ -65,13 +65,7 @@ func (o *EditSecretOptions) registerFlagCompletions(cmd *cobra.Command) {
 		return o.secretKeys(args[0], toComplete), noFile
 	})
 	_ = cmd.RegisterFlagCompletionFunc("type", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
-		return []string{
-			"Opaque",
-			"kubernetes.io/tls",
-			"kubernetes.io/dockerconfigjson",
-			"kubernetes.io/basic-auth",
-			"kubernetes.io/ssh-auth",
-		}, noFile
+		return knownSecretTypes, noFile
 	})
 }
 
@@ -108,12 +102,14 @@ func (o *EditSecretOptions) secretKeys(secretName, prefix string) []string {
 			continue
 		}
 		v := s.Data[k]
-		desc := plural(len(v), "byte")
+		desc := "text"
 		switch {
 		case !isText(v):
-			desc = "binary · " + desc
+			desc = "binary"
+		case parseCert(v) != nil:
+			desc = "certificate"
 		case strings.Contains(string(v), "\n"):
-			desc = "multi-line · " + desc
+			desc = "multi-line"
 		}
 		keys = append(keys, k+"\t"+desc)
 	}

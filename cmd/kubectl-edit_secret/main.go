@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime/debug"
 
 	"github.com/BardiaYaghmaie/kubectl-edit-secret/pkg/cmd"
 	"github.com/spf13/pflag"
@@ -16,6 +17,11 @@ var (
 )
 
 func main() {
+	if version == "dev" {
+		if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+			version = bi.Main.Version
+		}
+	}
 	pflag.CommandLine = pflag.NewFlagSet("kubectl-edit-secret", pflag.ExitOnError)
 
 	streams := genericclioptions.IOStreams{In: os.Stdin, Out: os.Stdout, ErrOut: os.Stderr}

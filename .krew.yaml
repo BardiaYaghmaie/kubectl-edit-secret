@@ -11,14 +11,15 @@ spec:
     opens a clean YAML view in your editor, and re-encodes and applies on save.
 
     Features:
-    - Multi-line values (certs, configs) as YAML block scalars
-    - Binary values shown as !!binary and preserved byte-for-byte
-    - Diff and confirmation before applying (--yes to skip)
-    - Reopens the editor on invalid YAML or API validation errors
-    - Conflict detection when the secret changes while you edit
-    - Non-interactive edits: --set, --from-file, --unset
-    - --create, --dry-run (server-side), fzf picker, rich tab completion
-    - Plaintext temp files kept in a private dir (/dev/shm on Linux) and wiped
+    - Multi-line values as YAML block scalars, JSON pretty-printed, binary preserved
+    - Change summary and confirmation showing the target context
+    - Reopens the editor on invalid YAML or API validation errors; edits never lost
+    - TLS cert/key validation and certificate summary before applying
+    - Warns about Helm/Argo CD/Flux/operator-managed secrets
+    - Shows workloads using the secret; --restart rolls them
+    - --set, --from-file (incl. stdin), --unset, --create, --dry-run, fzf picker
+    - Rich tab completion with one-command setup
+    - Plaintext kept in RAM (/dev/shm on Linux) and wiped on exit or signals
   caveats: |
     Requires an editor: set $KUBE_EDITOR or $EDITOR, or pass --editor.
 

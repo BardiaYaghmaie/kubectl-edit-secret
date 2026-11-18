@@ -25,8 +25,10 @@ func TestRenderParseRoundTrip(t *testing.T) {
 		"unicode":     []byte("سلام"),
 		"tabs":        []byte("a\tb"),
 		"colon":       []byte("key: value"),
+		"nbsp":        []byte("a\u00a0b"),
+		"emoji":       []byte("p\u00e4ss\U0001F511"),
 	}
-	out, err := renderData(data)
+	out, _, err := renderData(data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,6 +46,9 @@ func TestRenderParseRoundTrip(t *testing.T) {
 	}
 	if !strings.Contains(out, "multiline: |") {
 		t.Errorf("expected block scalar for multiline:\n%s", out)
+	}
+	if strings.Contains(out, "nbsp: !!binary") {
+		t.Errorf("non-breaking space should be text:\n%s", out)
 	}
 	if !strings.Contains(out, "binary: !!binary") {
 		t.Errorf("expected !!binary tag:\n%s", out)
@@ -109,13 +114,14 @@ func TestApplyFlagEdits(t *testing.T) {
 	got, err := applyFlagEdits(
 		map[string][]byte{"old": []byte("1"), "pw": []byte("a")},
 		[]string{"pw=b=c", "empty="},
-		[]string{cert, "renamed=" + cert},
+		[]string{cert, "renamed=" + cert, "stdin=-"},
 		[]string{"old"},
+		strings.NewReader("from-stdin"),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]string{"pw": "b=c", "empty": "", "tls.crt": "CERT", "renamed": "CERT"}
+	want := map[string]string{"pw": "b=c", "empty": "", "tls.crt": "CERT", "renamed": "CERT", "stdin": "from-stdin"}
 	if len(got) != len(want) {
 		t.Fatalf("got %v", got)
 	}
@@ -130,8 +136,9 @@ func TestApplyFlagEdits(t *testing.T) {
 		{sets: []string{"=x"}},
 		{files: []string{"k=" + filepath.Join(dir, "missing")}},
 		{unsets: []string{"nope"}},
+		{files: []string{"-"}},
 	} {
-		if _, err := applyFlagEdits(map[string][]byte{}, tc.sets, tc.files, tc.unsets); err == nil {
+		if _, err := applyFlagEdits(map[string][]byte{}, tc.sets, tc.files, tc.unsets, strings.NewReader("")); err == nil {
 			t.Errorf("expected error for %+v", tc)
 		}
 	}
@@ -152,5 +159,28 @@ func TestWorkspaceWipes(t *testing.T) {
 	ws.Close()
 	if _, err := os.Stat(ws.dir); !os.IsNotExist(err) {
 		t.Fatalf("workspace not removed: %v", err)
+	}
+}
+
+func TestJSONPrettyRoundTrip(t *testing.T) {
+	compact := []byte(`{"auths":{"r.io":{"auth":"eA=="}}}`)
+	data := map[string][]byte{".dockerconfigjson": compact, "spaced": []byte(`{"a": 1}`)}
+	out, pretty, err := renderData(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pretty[".dockerconfigjson"] || pretty["spaced"] {
+		t.Fatalf("pretty keys: %v", pretty)
+	}
+	if !strings.Contains(out, "\n      \"auths\": {") {
+		t.Fatalf("not pretty-printed:\n%s", out)
+	}
+	parsed, err := parseContent([]byte(out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := normalizeJSON(parsed, pretty)
+	if !bytes.Equal(got[".dockerconfigjson"], compact) || string(got["spaced"]) != `{"a": 1}` {
+		t.Fatalf("round trip: %q", got)
 	}
 }

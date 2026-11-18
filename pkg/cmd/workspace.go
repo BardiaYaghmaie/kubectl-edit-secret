@@ -4,8 +4,12 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sync/atomic"
+	"syscall"
+	"time"
 )
 
 // workspace is a private (0700) directory for plaintext secret files. On Linux it
@@ -22,7 +26,24 @@ func privateTempBase() string {
 	return ""
 }
 
+// staleAfter is how old a leftover workspace (from a SIGKILLed run) must be before it is wiped.
+const staleAfter = 12 * time.Hour
+
+func sweepStale() {
+	base := privateTempBase()
+	if base == "" {
+		base = os.TempDir()
+	}
+	matches, _ := filepath.Glob(filepath.Join(base, "kubectl-edit-secret-*"))
+	for _, m := range matches {
+		if info, err := os.Lstat(m); err == nil && info.IsDir() && time.Since(info.ModTime()) > staleAfter {
+			(&workspace{dir: m}).Close()
+		}
+	}
+}
+
 func newWorkspace() (*workspace, error) {
+	sweepStale()
 	dir, err := os.MkdirTemp(privateTempBase(), "kubectl-edit-secret-")
 	if err != nil && privateTempBase() != "" {
 		dir, err = os.MkdirTemp("", "kubectl-edit-secret-")
@@ -47,6 +68,33 @@ func (w *workspace) Close() {
 		return nil
 	})
 	_ = os.RemoveAll(w.dir)
+}
+
+// cleanupOnSignal wipes the workspace and exits if the process is interrupted,
+// terminated or hung up. Ctrl-C is left to the editor while it runs. SIGPIPE is
+// caught so a closed stdout turns into write errors and normal cleanup runs.
+func (w *workspace) cleanupOnSignal(editing *atomic.Bool) (stop func()) {
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGPIPE)
+	done := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case s := <-sigs:
+				if s == syscall.SIGPIPE || (s == os.Interrupt && editing.Load()) {
+					continue
+				}
+				w.Close()
+				os.Exit(130)
+			case <-done:
+				return
+			}
+		}
+	}()
+	return func() {
+		signal.Stop(sigs)
+		close(done)
+	}
 }
 
 func saveEdits(name string, content []byte) (string, error) {

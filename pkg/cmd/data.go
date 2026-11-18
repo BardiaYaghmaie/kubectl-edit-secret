@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -20,7 +21,7 @@ func isText(b []byte) bool {
 		return false
 	}
 	for _, r := range string(b) {
-		if !unicode.IsPrint(r) && r != '\n' && r != '\t' && r != '\r' {
+		if !unicode.IsPrint(r) && !unicode.IsSpace(r) {
 			return false
 		}
 	}
@@ -38,13 +39,56 @@ func valueNode(v []byte, literal bool) *yaml.Node {
 	return n
 }
 
-// renderData renders values as YAML, using block scalars for multi-line text
-// and falling back to quoted style for any key whose block form would not round-trip.
-func renderData(data map[string][]byte) (string, error) {
-	if len(data) == 0 {
-		return "", nil
+// prettyJSON returns an indented form of compact JSON objects/arrays. Only compact
+// input is accepted, so compacting the edited value restores the original bytes.
+func prettyJSON(v []byte) ([]byte, bool) {
+	if len(v) == 0 || (v[0] != '{' && v[0] != '[') || !json.Valid(v) {
+		return nil, false
 	}
-	keys := sortedKeys(data)
+	var c bytes.Buffer
+	if json.Compact(&c, v) != nil || !bytes.Equal(c.Bytes(), v) {
+		return nil, false
+	}
+	var p bytes.Buffer
+	if json.Indent(&p, v, "", "  ") != nil {
+		return nil, false
+	}
+	p.WriteByte('\n')
+	return p.Bytes(), true
+}
+
+// normalizeJSON compacts values that were shown pretty-printed.
+func normalizeJSON(data map[string][]byte, pretty map[string]bool) map[string][]byte {
+	for k := range pretty {
+		v, ok := data[k]
+		if !ok || !json.Valid(v) {
+			continue
+		}
+		var c bytes.Buffer
+		if json.Compact(&c, v) == nil {
+			data[k] = c.Bytes()
+		}
+	}
+	return data
+}
+
+// renderData renders values as YAML, using block scalars for multi-line text,
+// pretty-printing compact JSON, and falling back to quoted style for any key whose
+// block form would not round-trip. It returns the keys that were pretty-printed.
+func renderData(data map[string][]byte) (string, map[string]bool, error) {
+	pretty := map[string]bool{}
+	if len(data) == 0 {
+		return "", pretty, nil
+	}
+	shown := make(map[string][]byte, len(data))
+	for k, v := range data {
+		shown[k] = v
+		if p, ok := prettyJSON(v); ok {
+			shown[k] = p
+			pretty[k] = true
+		}
+	}
+	keys := sortedKeys(shown)
 	literal := make(map[string]bool, len(keys))
 	for _, k := range keys {
 		literal[k] = true
@@ -55,28 +99,28 @@ func renderData(data map[string][]byte) (string, error) {
 		for _, k := range keys {
 			root.Content = append(root.Content,
 				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: k},
-				valueNode(data[k], literal[k]))
+				valueNode(shown[k], literal[k]))
 		}
 		out, err := yaml.Marshal(root)
 		if err != nil {
-			return "", fmt.Errorf("failed to render secret: %w", err)
+			return "", nil, fmt.Errorf("failed to render secret: %w", err)
 		}
 		parsed, err := parseContent(out)
 		if err != nil {
-			return "", fmt.Errorf("failed to render secret: %w", err)
+			return "", nil, fmt.Errorf("failed to render secret: %w", err)
 		}
 		ok := true
 		for _, k := range keys {
-			if !bytes.Equal(parsed[k], data[k]) {
+			if !bytes.Equal(parsed[k], shown[k]) {
 				literal[k] = false
 				ok = false
 			}
 		}
 		if ok {
-			return string(out), nil
+			return string(out), pretty, nil
 		}
 	}
-	return "", fmt.Errorf("failed to render secret: values do not round-trip")
+	return "", nil, fmt.Errorf("failed to render secret: values do not round-trip")
 }
 
 func parseContent(content []byte) (map[string][]byte, error) {
@@ -147,7 +191,7 @@ func diffData(before, after map[string][]byte) []change {
 	return changes
 }
 
-func printChanges(w io.Writer, changes []change) {
+func printChanges(w io.Writer, changes []change, before, after map[string][]byte, showValues bool) {
 	if len(changes) == 0 {
 		fmt.Fprintln(w, "  (no keys)")
 		return
@@ -166,11 +210,34 @@ func printChanges(w io.Writer, changes []change) {
 		case '~':
 			detail = fmt.Sprintf("(%d -> %d bytes)", c.old, c.new)
 		}
+		if c.op != '-' {
+			if s := certSummary(after[c.key]); s != "" {
+				detail += "  " + s
+			}
+		}
 		fmt.Fprintf(w, "  %c %-*s  %s\n", c.op, width, c.key, detail)
+		if showValues {
+			if c.op != '+' {
+				printValue(w, "-", before[c.key])
+			}
+			if c.op != '-' {
+				printValue(w, "+", after[c.key])
+			}
+		}
 	}
 }
 
-func applyFlagEdits(data map[string][]byte, sets, fromFiles, unsets []string) (map[string][]byte, error) {
+func printValue(w io.Writer, sign string, v []byte) {
+	if !isText(v) {
+		fmt.Fprintf(w, "      %s <binary, %d bytes>\n", sign, len(v))
+		return
+	}
+	for _, line := range strings.Split(strings.TrimSuffix(string(v), "\n"), "\n") {
+		fmt.Fprintf(w, "      %s %s\n", sign, line)
+	}
+}
+
+func applyFlagEdits(data map[string][]byte, sets, fromFiles, unsets []string, stdin io.Reader) (map[string][]byte, error) {
 	out := copyData(data)
 	for _, s := range sets {
 		k, v, ok := strings.Cut(s, "=")
@@ -184,10 +251,16 @@ func applyFlagEdits(data map[string][]byte, sets, fromFiles, unsets []string) (m
 		if !ok {
 			k, path = filepath.Base(f), f
 		}
-		if k == "" || path == "" {
-			return nil, fmt.Errorf("invalid --from-file %q, expected [KEY=]PATH", f)
+		if k == "" || path == "" || (path == "-" && !ok) {
+			return nil, fmt.Errorf("invalid --from-file %q, expected [KEY=]PATH or KEY=-", f)
 		}
-		v, err := os.ReadFile(path)
+		var v []byte
+		var err error
+		if path == "-" {
+			v, err = io.ReadAll(stdin)
+		} else {
+			v, err = os.ReadFile(path)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("--from-file: %w", err)
 		}
