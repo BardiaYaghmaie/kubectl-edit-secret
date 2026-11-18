@@ -1,0 +1,59 @@
+apiVersion: krew.googlecontainertools.github.com/v1alpha2
+kind: Plugin
+metadata:
+  name: edit-secret
+spec:
+  version: {{ .TagName }}
+  homepage: https://github.com/BardiaYaghmaie/kubectl-edit-secret
+  shortDescription: Edit secrets with decoded base64 values
+  description: |
+    Edit Kubernetes secrets with decoded values: the plugin decodes base64,
+    opens a clean YAML view in your editor, and re-encodes and applies on save.
+
+    Features:
+    - Multi-line values as YAML block scalars, JSON pretty-printed, binary preserved
+    - Change summary and confirmation showing the target context
+    - Reopens the editor on invalid YAML or API validation errors; edits never lost
+    - TLS cert/key validation and certificate summary before applying
+    - Warns about Helm/Argo CD/Flux/operator-managed secrets
+    - Shows workloads using the secret; --restart rolls them
+    - --set, --from-file (incl. stdin), --unset, --create, --dry-run, fzf picker
+    - Rich tab completion with one-command setup
+    - Plaintext kept in RAM (/dev/shm on Linux) and wiped on exit or signals
+  caveats: |
+    Requires an editor: set $KUBE_EDITOR or $EDITOR, or pass --editor.
+
+    Enable tab completion (kubectl >= 1.26):
+
+      kubectl edit-secret completion install
+  platforms:
+  - selector:
+      matchLabels:
+        os: linux
+        arch: amd64
+    {{ addURIAndSha "https://github.com/BardiaYaghmaie/kubectl-edit-secret/releases/download/{{ .TagName }}/kubectl-edit-secret_linux_amd64.tar.gz" .TagName }}
+    bin: kubectl-edit_secret
+  - selector:
+      matchLabels:
+        os: linux
+        arch: arm64
+    {{ addURIAndSha "https://github.com/BardiaYaghmaie/kubectl-edit-secret/releases/download/{{ .TagName }}/kubectl-edit-secret_linux_arm64.tar.gz" .TagName }}
+    bin: kubectl-edit_secret
+  - selector:
+      matchLabels:
+        os: darwin
+        arch: amd64
+    {{ addURIAndSha "https://github.com/BardiaYaghmaie/kubectl-edit-secret/releases/download/{{ .TagName }}/kubectl-edit-secret_darwin_amd64.tar.gz" .TagName }}
+    bin: kubectl-edit_secret
+  - selector:
+      matchLabels:
+        os: darwin
+        arch: arm64
+    {{ addURIAndSha "https://github.com/BardiaYaghmaie/kubectl-edit-secret/releases/download/{{ .TagName }}/kubectl-edit-secret_darwin_arm64.tar.gz" .TagName }}
+    bin: kubectl-edit_secret
+  - selector:
+      matchLabels:
+        os: windows
+        arch: amd64
+    {{ addURIAndSha "https://github.com/BardiaYaghmaie/kubectl-edit-secret/releases/download/{{ .TagName }}/kubectl-edit-secret_windows_amd64.zip" .TagName }}
+    bin: kubectl-edit_secret.exe

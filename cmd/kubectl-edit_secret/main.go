@@ -1,24 +1,31 @@
 package main
 
 import (
+	"fmt"
 	"os"
+	"runtime/debug"
 
 	"github.com/BardiaYaghmaie/kubectl-edit-secret/pkg/cmd"
 	"github.com/spf13/pflag"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 )
 
+var (
+	version   = "dev"
+	commit    = "none"
+	buildDate = "unknown"
+)
+
 func main() {
-	flags := pflag.NewFlagSet("kubectl-edit-secret", pflag.ExitOnError)
-	pflag.CommandLine = flags
-
-	streams := genericclioptions.IOStreams{
-		In:     os.Stdin,
-		Out:    os.Stdout,
-		ErrOut: os.Stderr,
+	if version == "dev" {
+		if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+			version = bi.Main.Version
+		}
 	}
+	pflag.CommandLine = pflag.NewFlagSet("kubectl-edit-secret", pflag.ExitOnError)
 
-	rootCmd := cmd.NewEditSecretCmd(streams)
+	streams := genericclioptions.IOStreams{In: os.Stdin, Out: os.Stdout, ErrOut: os.Stderr}
+	rootCmd := cmd.NewEditSecretCmd(streams, fmt.Sprintf("%s (commit %s, built %s)", version, commit, buildDate))
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
