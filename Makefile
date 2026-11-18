@@ -47,7 +47,7 @@ test:
 
 # Run end-to-end tests (needs a kind cluster in the current KUBECONFIG)
 e2e:
-	hack/e2e.sh
+	test/e2e.sh
 
 # Run linter
 lint:

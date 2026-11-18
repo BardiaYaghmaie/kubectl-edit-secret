@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end tests against a kind cluster. Usage: KUBECONFIG=... hack/e2e.sh
+# End-to-end tests against a kind cluster. Usage: KUBECONFIG=... test/e2e.sh
 set -euo pipefail
 
 ctx=$(kubectl config current-context)

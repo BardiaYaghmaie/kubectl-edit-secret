@@ -13,13 +13,18 @@ import (
 // land in the same directory and are wiped with it.
 type workspace struct{ dir string }
 
-func newWorkspace() (*workspace, error) {
-	var dir string
-	var err error
+func privateTempBase() string {
 	if runtime.GOOS == "linux" {
-		dir, err = os.MkdirTemp("/dev/shm", "kubectl-edit-secret-")
+		if info, err := os.Stat("/dev/shm"); err == nil && info.IsDir() {
+			return "/dev/shm"
+		}
 	}
-	if dir == "" || err != nil {
+	return ""
+}
+
+func newWorkspace() (*workspace, error) {
+	dir, err := os.MkdirTemp(privateTempBase(), "kubectl-edit-secret-")
+	if err != nil && privateTempBase() != "" {
 		dir, err = os.MkdirTemp("", "kubectl-edit-secret-")
 	}
 	if err != nil {
@@ -45,7 +50,7 @@ func (w *workspace) Close() {
 }
 
 func saveEdits(name string, content []byte) (string, error) {
-	f, err := os.CreateTemp("", "kubectl-edit-secret-"+filepath.Base(name)+"-*.yaml")
+	f, err := os.CreateTemp(privateTempBase(), "kubectl-edit-secret-"+filepath.Base(name)+"-*.yaml")
 	if err != nil {
 		return "", err
 	}
