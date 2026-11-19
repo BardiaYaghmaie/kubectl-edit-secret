@@ -2,10 +2,10 @@
 
 **Edit Kubernetes secrets like they are plain text files. Because they should be.**
 
-[![Krew](https://img.shields.io/badge/kubectl-krew-blue.svg)](https://krew.sigs.k8s.io/plugins/)
-[![CI](https://github.com/BardiaYaghmaie/kubectl-edit-secret/actions/workflows/ci.yml/badge.svg)](https://github.com/BardiaYaghmaie/kubectl-edit-secret/actions/workflows/ci.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/BardiaYaghmaie/kubectl-edit-secret)](https://goreportcard.com/report/github.com/BardiaYaghmaie/kubectl-edit-secret)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Krew](https://img.shields.io/badge/kubectl-krew-brightgreen.svg)](https://krew.sigs.k8s.io/plugins/)
+[![CI](https://github.com/BardiaYaghmaie/kubectl-edit-secret/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/BardiaYaghmaie/kubectl-edit-secret/actions/workflows/ci.yml)
+[![Go](https://img.shields.io/github/go-mod/go-version/BardiaYaghmaie/kubectl-edit-secret?color=brightgreen)](go.mod)
+[![License: MIT](https://img.shields.io/badge/License-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
 
 <p align="center">
   <img src="docs/demo.gif" alt="Rotating a database password with kubectl edit-secret: tab completion, editing in vim, a change summary, and restarting the workloads that use it" width="860">
